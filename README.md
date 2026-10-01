@@ -1,205 +1,84 @@
-# DELIVERI v2.3 — Setup, TradeEase Integration & Operations
+DELIVERI: TradeEase-owned Logistics & Delivery Management Platform
 
-DELIVERI is TradeEase's owned logistics provider: one application with Driver and Admin workspaces, backed by Node.js/Express and SQLite. TradeEase remains the source of truth for commerce, vendor orders and logistics-provider selection. DELIVERI is the source of truth for DELIVERI physical fulfilment and driver operations. Other logistics providers can be integrated directly into TradeEase through their own API/webhook adapters.
+DELIVERI is the logistics operating system behind TradeEase. TradeEase owns the customer and commercial journey; DELIVERI owns the execution of delivery work assigned to its logistics network. The systems communicate through authenticated service boundaries, with fulfilment identifiers connecting the commercial transaction to the physical delivery.
+The platform is deliberately broader than DELIVERI itself: TradeEase can route work to DELIVERI or external logistics companies. DELIVERI therefore serves as both TradeEase's owned preferred logistics operation and a concrete implementation of the wider logistics-provider architecture.
+The security model is foundational: server-side role enforcement, driver ownership checks, controlled state transitions, authenticated integration requests, idempotent event processing, retry handling, sanitised tracking, audit trails and secure secret management.
 
-The TradeEase ↔ DELIVERI connection now uses a **versioned, signed,
-idempotent and durable webhook architecture**. The integration is documented
-in `docs/TRADEEASE_DELIVERI_INTEGRATION.md`.
+BUSINESS PURPOSE:
+Provide TradeEase with an owned logistics execution capability.
+Operate a dedicated Driver workspace for physical delivery personnel.
+Operate an Admin workspace for logistics supervision and control.
+Receive delivery jobs from TradeEase through an authenticated integration.
+Return delivery events/status to TradeEase reliably.
+Support live GPS/location and fleet visibility where enabled.
+Support driver earnings, payouts and reconciliation.
+Provide a foundation for integrating external logistics providers through the same provider architecture.
 
----
+OWNERSHIP & PROVIDER STRATEGY
+DELIVERI is a TradeEase-owned logistics platform. The provider model established in the project identifies DELIVERI as an owned and preferred provider.
+Preferred does not mean exclusive. TradeEase can route delivery work to DELIVERI or to independent logistics companies. This separation lets TradeEase retain marketplace flexibility while DELIVERI remains its own logistics operation.
+Architecturally, DELIVERI is both an operating logistics system and a concrete implementation of the provider contract that other logistics companies can implement.
 
-## 1. Running DELIVERI by itself
+CORE ARCHITECTURE:
+Customer places an order in TradeEase.
+TradeEase creates the marketplace order and vendor-specific order/fulfilment records.
+TradeEase determines that delivery is required and selects a logistics provider.
+If DELIVERI is selected, TradeEase sends an authenticated delivery request.
+DELIVERI validates the provider and fulfilment identifiers and creates/updates the delivery.
+An authorised driver is assigned or accepts the job.
+The driver progresses the delivery through permitted states.
+DELIVERI records tracking and operational events.
+DELIVERI sends relevant events back to TradeEase.
+TradeEase correlates those events to the fulfilment and updates customer-facing status.
 
-```bash
-npm install
-cp .env.example .env
-npm run seed
-npm run dev
-```
+CANONICAL DATA FLOW:
+TradeEase Order → Vendor Order → Fulfillment → DELIVERI Delivery → Tracking Number → Driver → Delivery Status → TradeEase
+This is deliberately a many-layer mapping. A customer order can contain products from several vendors, so a single parent order must not be treated as a single delivery by default.
+The established multi-vendor mapping is fulfillmentId → vendorOrderId → orderId. Events may correlate orderId, orderNumber, fulfillmentId, vendorId, vendorOrderId, deliveryId, trackingNumber and provider information.
 
-Open `http://localhost:3001`.
+ARCHITECTURE REFERENCE:
+Customer → Cart → Order → Vendor Orders → Fulfilments → Provider Selection
 
-Seeded accounts use `deliveri123`:
+                                      ↓
 
-- Admin: `chukwuma@tradeease.com`
-- Driver: `chidi.anya@deliveri.ng`
+                              Selected Provider
 
-For production, set a long random `JWT_SECRET` and use a persistent Railway
-volume for `DATABASE_PATH`, such as `/data/deliveri.db`.
+                                      ↓
 
----
+                         Authenticated API Request
 
-## 2. Exact TradeEase ↔ DELIVERI architecture
+                                      ↓
 
-### TradeEase → DELIVERI
+                                  DELIVERI
 
-When a TradeEase order requires DELIVERI fulfilment, TradeEase sends a signed
-`order.fulfillment_requested` event to:
+                         Driver / Admin / Delivery
 
-```text
-POST /api/webhooks/tradeease/orders
-```
+                                      ↓
 
-DELIVERI creates exactly one delivery job and returns:
+               Created → Assigned → Accepted → Picked Up
 
-- `deliveryId`
-- `trackingNumber`
-- `qrCodeToken`
-- `status`
-- `eventId`
+                                      ↓
 
-The delivery stores the TradeEase correlation fields:
+                        In Transit → Delivered
 
-- `sourcePlatform`
-- `sourceOrderId`
-- `sourceOrderNumber`
-- `sourceVendorId`
-- `sourceVendorOrderId`
-- `sourceEventId`
+                                      ↓
 
-### DELIVERI → TradeEase
+                       Tracking / Event / Audit
 
-As the delivery progresses, DELIVERI queues lifecycle events:
+                                      ↓
 
-```text
- delivery.created
- delivery.assigned
- delivery.picked_up
- delivery.in_transit
- delivery.delivered
- delivery.rejected
-```
+                         Authenticated Webhook
 
-The events are sent to the URL in `TRADEEASE_WEBHOOK_URL`.
+                                      ↓
 
-### Durable outbox
+                                  TRADEEASE
 
-Outbound events are written to the `integration_events` table **before**
-HTTP delivery. A background worker retries failed requests with exponential
-backoff. A Railway restart therefore does not silently lose a delivery
-status update.
+                         Fulfilment / Order Status
 
-### Idempotency
+                                      ↓
 
-Inbound requests are deduplicated by event ID and by the TradeEase order ID.
-A retry cannot create a second DELIVERI delivery for the same TradeEase fulfilment. Multi-vendor TradeEase orders can create separate physical shipments because idempotency is keyed by fulfilment/vendor-order ID rather than the parent order alone.
-Outbound events also have unique event IDs.
+                                  CUSTOMER
 
-### Security
 
-Use two directional HMAC secrets:
 
-```env
-TRADEEASE_TO_DELIVERI_SECRET="..."
-DELIVERI_TO_TRADEEASE_SECRET="..."
-```
-
-This is preferable to one secret shared in both directions. DELIVERI v2.2's
-`TRADEEASE_WEBHOOK_SECRET` is still supported as a compatibility fallback.
-
----
-
-## 3. Integration monitoring
-
-Authenticated Admins can check:
-
-```text
-GET /api/integrations/tradeease
-```
-
-Managers/Super Admins can inspect recent integration events:
-
-```text
-GET /api/integrations/tradeease/events?limit=50
-```
-
-These endpoints never return webhook secrets.
-
----
-
-## 4. Full test flow
-
-With both applications running:
-
-1. Create a TradeEase order using DELIVERI fulfilment.
-2. TradeEase sends `order.fulfillment_requested`.
-3. DELIVERI creates one delivery and returns its tracking number.
-4. The delivery appears in the DELIVERI dispatch queue.
-5. Admin assigns a driver or a driver accepts an eligible open job.
-6. Driver progresses the job: **Picked Up → In Transit → Delivered**.
-7. DELIVERI queues and sends the corresponding lifecycle events.
-8. TradeEase receives those events and updates its order/tracking record.
-9. If TradeEase is temporarily unavailable, DELIVERI keeps retrying from its
-   persistent outbox instead of losing the status event.
-
-See `docs/TRADEEASE_DELIVERI_INTEGRATION.md` for the complete payload
-contract.
-
----
-
-## 5. Backward compatibility
-
-DELIVERI continues to accept the older v2.2 flat TradeEase webhook payload.
-The new endpoint also accepts the structured v1 envelope. Outbound events
-include both the new structured `data` object and the legacy top-level fields,
-so the existing TradeEase receiver can be upgraded without requiring a
-big-bang deployment.
-
----
-
-## 6. Admin accounts and permissions
-
-There is no public admin signup. Admin accounts are created by Manager or
-Super Admin accounts.
-
-| Action | Minimum role |
-|---|---|
-| View team/driver rosters, dispatch and assignments | Any Admin |
-| Onboard, approve or suspend drivers | Dispatcher |
-| Add an Admin | Manager |
-| Reset demo data | Super Admin + `ALLOW_DEMO_RESET=true` |
-
----
-
-## 7. Railway deployment checklist
-
-Set:
-
-```env
-NODE_ENV=production
-JWT_SECRET=<long-random-secret>
-DATABASE_PATH=/data/deliveri.db
-TRADEEASE_TO_DELIVERI_SECRET=<secret-matching-TradeEase>
-DELIVERI_TO_TRADEEASE_SECRET=<secret-matching-TradeEase>
-TRADEEASE_WEBHOOK_URL=https://<tradeease-domain>/api/webhooks/deliveri
-```
-
-Attach a persistent Railway volume mounted at `/data`.
-
-Keep `ALLOW_DEMO_RESET=false` in production.
-
----
-
-## 8. Multi-provider rule on TradeEase
-
-TradeEase should treat DELIVERI as provider code `DELIVERI`, an owned/preferred provider — not as the only logistics provider. The matching TradeEase logistics layer should use a provider adapter/registry so additional carriers can be integrated independently. For the DELIVERI adapter, TradeEase should:
-
-1. Generate a unique `eventId` for every fulfilment request.
-2. Sign the exact raw JSON body with `TRADEEASE_TO_DELIVERI_SECRET`.
-3. Store DELIVERI's `deliveryId` and `trackingNumber` on the TradeEase order.
-4. Verify `X-Deliveri-Signature` using `DELIVERI_TO_TRADEEASE_SECRET`.
-5. Deduplicate incoming DELIVERI events by `eventId`.
-6. Treat unknown event types as safely ignorable/HTTP 202.
-7. Add its own durable retry/outbox mechanism for the initial handoff.
-
-Do not put payment credentials, passwords or unnecessary sensitive customer
-information into webhook payloads.
-
-For the detailed data contract and lifecycle mapping, see:
-
-`docs/TRADEEASE_DELIVERI_INTEGRATION.md`
-
-## v2.5 production integration additions
-
-This build adds the production hardening and logistics integration layer described in `docs/PRODUCTION_GO_LIVE_CHECKLIST.md`.
-Key additions include dual-workspace switching, server-enforced driver ownership, strict delivery transitions, privacy-safe public tracking, live Google Maps/GPS hooks, finance/payout/reconciliation APIs, password reset, request rate limiting, audit logs, and a persistent TradeEase fulfilment/outbox contract.
+Designed and Built by Chidindu Ejika for FAUCH Technologies
