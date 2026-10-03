@@ -1,0 +1,88 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@500;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Space Grotesk", sans-serif;
+
+  /* TradeEase branding palette: Light Mode defaults */
+  --primary: #95C332;
+  --primary-hover: #81ac28;
+  --background: #EDEDED;
+  --surface: #FFFFFF;
+  --surface-hover: #F5F5F5;
+  --text-dark: #012B2A;
+  --text-light: #527A79;
+  --accent: #A7D94B;
+  --border-color: #D6E3E3;
+  --text-muted: #527A79;
+}
+
+:root[data-theme="dark"], :root.dark {
+  /* TradeEase branding palette: Dark Mode */
+  --primary: #95C332;
+  --primary-hover: #A7D94B;
+  --background: #003C3A;
+  --surface: #012B2A;
+  --surface-hover: #033c3a;
+  --text-dark: #FFFFFF;
+  --text-light: #C5E0D8;
+  --accent: #A7D94B;
+  --border-color: #024D4B;
+  --text-muted: #A3CFC3;
+}
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Space Grotesk", sans-serif;
+
+  --color-brand-primary: var(--primary);
+  --color-brand-primary-hover: var(--primary-hover);
+  --color-brand-bg: var(--background);
+  --color-brand-surface: var(--surface);
+  --color-brand-surface-hover: var(--surface-hover);
+  --color-brand-text: var(--text-dark);
+  --color-brand-light: var(--text-light);
+  --color-brand-accent: var(--accent);
+  --color-brand-border: var(--border-color);
+  --color-brand-muted: var(--text-muted);
+}
+
+@layer utilities {
+  /* Dynamic blinking and pulse effects */
+  @keyframes scanline {
+    0% {
+      transform: translateY(-100%);
+    }
+    100% {
+      transform: translateY(100%);
+    }
+  }
+
+  .animate-scanline {
+    animation: scanline 3s linear infinite;
+  }
+}
+
+/* Base custom visual scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
